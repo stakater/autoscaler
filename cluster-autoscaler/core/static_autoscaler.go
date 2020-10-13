@@ -17,11 +17,13 @@ limitations under the License.
 package core
 
 import (
+	ctx "context"
 	"fmt"
 	"reflect"
 	"time"
 
 	apiv1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	schedulerframework "k8s.io/kubernetes/pkg/scheduler/framework/v1alpha1"
@@ -42,6 +44,7 @@ import (
 	"k8s.io/autoscaler/cluster-autoscaler/utils/deletetaint"
 	"k8s.io/autoscaler/cluster-autoscaler/utils/errors"
 	"k8s.io/autoscaler/cluster-autoscaler/utils/gpu"
+	"k8s.io/autoscaler/cluster-autoscaler/utils/kubernetes"
 	"k8s.io/autoscaler/cluster-autoscaler/utils/taints"
 	"k8s.io/autoscaler/cluster-autoscaler/utils/tpu"
 
@@ -260,8 +263,25 @@ func (a *StaticAutoscaler) RunOnce(currentTime time.Time) errors.AutoscalerError
 	}
 
 	nonExpendableScheduledPods := core_utils.FilterOutExpendablePods(originalScheduledPods, a.ExpendablePodsPriorityCutoff)
+
+	nodes, err := a.ClientSet.CoreV1().Nodes().List(ctx.TODO(), metav1.ListOptions{})
+	if err != nil {
+		klog.Errorf("Failed to get nodes from the cluster: %v", err)
+		return errors.ToAutoscalerError(errors.ApiCallError, err)
+	}
+
+	var clusterSnapshotNodes []*apiv1.Node
+	for i := 0; i < len(nodes.Items); i++ {
+		if _, ok := nodes.Items[i].Labels["node-role.kubernetes.io/master"]; ok {
+			continue
+		} else if _, ok := nodes.Items[i].Labels["node-role.kubernetes.io/infra"]; ok {
+			continue
+		}
+		clusterSnapshotNodes = append(clusterSnapshotNodes, &nodes.Items[i])
+	}
+
 	// Initialize cluster state to ClusterSnapshot
-	if typedErr := a.initializeClusterSnapshot(allNodes, nonExpendableScheduledPods); typedErr != nil {
+	if typedErr := a.initializeClusterSnapshot(clusterSnapshotNodes, nonExpendableScheduledPods); typedErr != nil {
 		return typedErr.AddPrefix("Initialize ClusterSnapshot")
 	}
 
@@ -436,6 +456,7 @@ func (a *StaticAutoscaler) RunOnce(currentTime time.Time) errors.AutoscalerError
 		}
 	}
 
+	// TODO: FIX ScaleDown here
 	if a.ScaleDownEnabled {
 		pdbs, err := pdbLister.List()
 		if err != nil {
@@ -477,6 +498,23 @@ func (a *StaticAutoscaler) RunOnce(currentTime time.Time) errors.AutoscalerError
 			}
 		}
 
+		nodeInfos, err := a.ClusterSnapshot.NodeInfos().List()
+		if err != nil {
+			klog.Error(err)
+			return errors.ToAutoscalerError(errors.InternalError, err)
+		}
+		var  allSchedulableNodes[]*apiv1.Node
+		for _, nodeInfo := range nodeInfos {
+			if kubernetes.IsNodeReadyAndSchedulable(nodeInfo.Node()) {
+				allSchedulableNodes = append(allSchedulableNodes, nodeInfo.Node())
+			}
+		}
+
+		podDestinations = allSchedulableNodes
+
+		for _, scaleDownCandidate := range scaleDownCandidates {
+			klog.Info("Scale Down Candidate: " + scaleDownCandidate.Name)
+		}
 		// We use scheduledPods (not originalScheduledPods) here, so artificial scheduled pods introduced by processors
 		// (e.g unscheduled pods with nominated node name) can block scaledown of given node.
 		if typedErr := scaleDown.UpdateUnneededNodes(podDestinations, scaleDownCandidates, currentTime, pdbs); typedErr != nil {

@@ -32,6 +32,7 @@ import (
 	"k8s.io/autoscaler/cluster-autoscaler/metrics"
 	"k8s.io/autoscaler/cluster-autoscaler/simulator"
 	"k8s.io/autoscaler/cluster-autoscaler/utils"
+	"k8s.io/autoscaler/cluster-autoscaler/utils/deletenode"
 	"k8s.io/autoscaler/cluster-autoscaler/utils/deletetaint"
 	"k8s.io/autoscaler/cluster-autoscaler/utils/errors"
 	"k8s.io/autoscaler/cluster-autoscaler/utils/kubernetes"
@@ -956,6 +957,12 @@ func (sd *ScaleDown) TryToScaleDown(
 			klog.Errorf("Failed to delete %s: %v", toRemove.Node.Name, result.Err)
 			return
 		}
+
+		if err := deletenode.DeleteNode(toRemove.Node, sd.context.ClientSet); err != nil {
+			klog.Errorf("Failed to delete %s: %v from the cluster", toRemove.Node.Name, result.Err)
+			return
+		}
+
 		if readinessMap[toRemove.Node.Name] {
 			metrics.RegisterScaleDown(1, gpu.GetGpuTypeForMetrics(gpuLabel, availableGPUTypes, toRemove.Node, nodeGroup), metrics.Underutilized)
 		} else {
@@ -1094,6 +1101,12 @@ func (sd *ScaleDown) scheduleDeleteEmptyNodes(emptyNodes []*apiv1.Node, client k
 				result = status.NodeDeleteResult{ResultType: status.NodeDeleteErrorFailedToDelete, Err: deleteErr}
 				return
 			}
+
+			if err := deletenode.DeleteNode(nodeToDelete, sd.context.ClientSet); err != nil {
+				klog.Errorf("Failed to delete %s: %v from the cluster", nodeToDelete.Name, result.Err)
+				return
+			}
+
 			if readinessMap[nodeToDelete.Name] {
 				metrics.RegisterScaleDown(1, gpu.GetGpuTypeForMetrics(sd.context.CloudProvider.GPULabel(), sd.context.CloudProvider.GetAvailableGPUTypes(), nodeToDelete, nodeGroupForDeletedNode), metrics.Empty)
 			} else {

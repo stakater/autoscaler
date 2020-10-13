@@ -36,6 +36,20 @@ func IsNodeReadyAndSchedulable(node *apiv1.Node) bool {
 	return true
 }
 
+// IsCloudNodeReadyAndSchedulable returns true if the node is on cloud and ready and schedulable.
+func IsCloudNodeReadyAndSchedulable(node *apiv1.Node) bool {
+	if !IsCloudNode(node) {
+		return false
+	}
+
+	return IsNodeReadyAndSchedulable(node)
+}
+
+// IsCloudNode returns true if the node is on cloud.
+func IsCloudNode(node *apiv1.Node) bool {
+	return node.Spec.ProviderID != ""
+}
+
 // GetReadinessState gets readiness state for the node
 func GetReadinessState(node *apiv1.Node) (isNodeReady bool, lastTransitionTime time.Time, err error) {
 	canNodeBeReady, readyFound := true, false
