@@ -505,6 +505,11 @@ func (a *StaticAutoscaler) RunOnce(currentTime time.Time) errors.AutoscalerError
 		}
 		var  allSchedulableNodes[]*apiv1.Node
 		for _, nodeInfo := range nodeInfos {
+			if _, ok := nodeInfo.Node().Labels["node-role.kubernetes.io/master"]; ok {
+				continue
+			} else if _, ok := nodeInfo.Node().Labels["node-role.kubernetes.io/infra"]; ok {
+				continue
+			}
 			if kubernetes.IsNodeReadyAndSchedulable(nodeInfo.Node()) {
 				allSchedulableNodes = append(allSchedulableNodes, nodeInfo.Node())
 			}
@@ -512,9 +517,6 @@ func (a *StaticAutoscaler) RunOnce(currentTime time.Time) errors.AutoscalerError
 
 		podDestinations = allSchedulableNodes
 
-		for _, scaleDownCandidate := range scaleDownCandidates {
-			klog.Info("Scale Down Candidate: " + scaleDownCandidate.Name)
-		}
 		// We use scheduledPods (not originalScheduledPods) here, so artificial scheduled pods introduced by processors
 		// (e.g unscheduled pods with nominated node name) can block scaledown of given node.
 		if typedErr := scaleDown.UpdateUnneededNodes(podDestinations, scaleDownCandidates, currentTime, pdbs); typedErr != nil {

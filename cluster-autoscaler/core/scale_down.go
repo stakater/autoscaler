@@ -478,7 +478,6 @@ func (sd *ScaleDown) UpdateUnneededNodes(
 			}
 
 			sd.addUnremovableNodeReason(node, reason)
-			continue
 		}
 
 		currentlyUnneededNodeNames = append(currentlyUnneededNodeNames, node.Name)
